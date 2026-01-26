@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "atlassian": {
+      "command": "node",
+      "args": ["/Users/dongood/SourceCode/Repos/_dongood/atlassian-mcp-server/build/index.js"],
+      "env": {
+        "ATLASSIAN_SITE_URL": "https://avetta.atlassian.net",
+        "ATLASSIAN_USER_EMAIL": "your.email@example.com",
+        "ATLASSIAN_API_TOKEN": "your-api-token-here"
+      }
+    }
+  }
+}
