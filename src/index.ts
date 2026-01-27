@@ -8,6 +8,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { JiraClient } from "./jira-client.js";
 import { ConfluenceClient } from "./confluence-client.js";
+import { safeJsonStringify, MAX_RESPONSE_TOKENS } from "./content-utils.js";
 
 // Get configuration from environment variables
 const config = {
@@ -72,7 +73,7 @@ const tools = [
   {
     name: "atlassian_get_jira_issue",
     description:
-      "Get a Jira issue by key (e.g., PROJ-123) or numeric ID. Returns full issue details including fields.",
+      "Get a Jira issue by key (e.g., PROJ-123) or numeric ID. Returns full issue details including fields. Use offset/maxTokens for large issues.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -84,6 +85,15 @@ const tools = [
           type: "array",
           items: { type: "string" },
           description: "Optional: specific fields to retrieve",
+        },
+        offset: {
+          type: "number",
+          description:
+            "Character offset for pagination (use nextOffset from truncated response). Default: 0",
+        },
+        maxTokens: {
+          type: "number",
+          description: `Maximum tokens to return. Default: ${MAX_RESPONSE_TOKENS}`,
         },
       },
       required: ["issueKey"],
@@ -144,7 +154,7 @@ const tools = [
   {
     name: "atlassian_search_jira_issues",
     description:
-      "Search for Jira issues using JQL (Jira Query Language). Returns matching issues with specified fields.",
+      "Search for Jira issues using JQL (Jira Query Language). Returns matching issues with specified fields. Use offset/maxTokens for large result sets.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -162,6 +172,15 @@ const tools = [
           items: { type: "string" },
           description:
             "Optional: specific fields to retrieve (default: summary, status, assignee, created, updated)",
+        },
+        offset: {
+          type: "number",
+          description:
+            "Character offset for pagination (use nextOffset from truncated response). Default: 0",
+        },
+        maxTokens: {
+          type: "number",
+          description: `Maximum tokens to return. Default: ${MAX_RESPONSE_TOKENS}`,
         },
       },
       required: ["jql"],
@@ -274,7 +293,7 @@ const tools = [
   {
     name: "atlassian_get_confluence_page",
     description:
-      "Get a Confluence page by its numeric ID. Returns page content in the specified format.",
+      "Get a Confluence page by its numeric ID. Returns page content in the specified format. Use offset/limit for large pages.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -288,6 +307,15 @@ const tools = [
           description:
             "Content format: 'storage' (HTML) or 'atlas_doc_format' (ADF). Default: storage",
         },
+        offset: {
+          type: "number",
+          description:
+            "Character offset for pagination (use nextOffset from truncated response). Default: 0",
+        },
+        maxTokens: {
+          type: "number",
+          description: `Maximum tokens to return. Default: ${MAX_RESPONSE_TOKENS}`,
+        },
       },
       required: ["pageId"],
     },
@@ -295,7 +323,7 @@ const tools = [
   {
     name: "atlassian_search_confluence_cql",
     description:
-      "Search Confluence pages using CQL (Confluence Query Language). CQL is similar to JQL but for Confluence.",
+      "Search Confluence pages using CQL (Confluence Query Language). CQL is similar to JQL but for Confluence. Use offset/maxTokens for large result sets.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -307,6 +335,15 @@ const tools = [
         limit: {
           type: "number",
           description: "Maximum number of results (default: 25)",
+        },
+        offset: {
+          type: "number",
+          description:
+            "Character offset for pagination (use nextOffset from truncated response). Default: 0",
+        },
+        maxTokens: {
+          type: "number",
+          description: `Maximum tokens to return. Default: ${MAX_RESPONSE_TOKENS}`,
         },
       },
       required: ["cql"],
@@ -457,16 +494,18 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       // Jira tools
       case "atlassian_get_jira_issue": {
-        const { issueKey, fields } = args as {
+        const { issueKey, fields, offset, maxTokens } = args as {
           issueKey: string;
           fields?: string[];
+          offset?: number;
+          maxTokens?: number;
         };
         if (!issueKey) {
           throw new Error("issueKey is required");
         }
         const result = await jiraClient.getIssue(issueKey, fields);
         return {
-          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          content: [{ type: "text", text: safeJsonStringify(result, offset || 0, maxTokens || MAX_RESPONSE_TOKENS) }],
         };
       }
 
@@ -513,17 +552,19 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case "atlassian_search_jira_issues": {
-        const { jql, maxResults, fields } = args as {
+        const { jql, maxResults, fields, offset, maxTokens } = args as {
           jql: string;
           maxResults?: number;
           fields?: string[];
+          offset?: number;
+          maxTokens?: number;
         };
         if (!jql) {
           throw new Error("jql is required");
         }
         const result = await jiraClient.searchIssues(jql, maxResults, fields);
         return {
-          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          content: [{ type: "text", text: safeJsonStringify(result, offset || 0, maxTokens || MAX_RESPONSE_TOKENS) }],
         };
       }
 
@@ -615,30 +656,34 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       // Confluence tools
       case "atlassian_get_confluence_page": {
-        const { pageId, contentFormat } = args as {
+        const { pageId, contentFormat, offset, maxTokens } = args as {
           pageId: string;
           contentFormat?: "storage" | "atlas_doc_format";
+          offset?: number;
+          maxTokens?: number;
         };
         if (!pageId) {
           throw new Error("pageId is required");
         }
         const result = await confluenceClient.getPage(pageId, contentFormat);
         return {
-          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          content: [{ type: "text", text: safeJsonStringify(result, offset || 0, maxTokens || MAX_RESPONSE_TOKENS) }],
         };
       }
 
       case "atlassian_search_confluence_cql": {
-        const { cql, limit } = args as {
+        const { cql, limit, offset, maxTokens } = args as {
           cql: string;
           limit?: number;
+          offset?: number;
+          maxTokens?: number;
         };
         if (!cql) {
           throw new Error("cql is required");
         }
         const result = await confluenceClient.searchCQL(cql, limit);
         return {
-          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          content: [{ type: "text", text: safeJsonStringify(result, offset || 0, maxTokens || MAX_RESPONSE_TOKENS) }],
         };
       }
 
