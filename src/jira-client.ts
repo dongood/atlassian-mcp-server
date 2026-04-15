@@ -1,6 +1,10 @@
 import axios, { AxiosResponse } from "axios";
+import FormData from "form-data";
+import * as fs from "fs";
+import * as path from "path";
 import { AtlassianClient } from "./atlassian-client.js";
 import {
+  JiraAttachment,
   JiraIssue,
   JiraProject,
   JiraSearchResult,
@@ -413,6 +417,149 @@ export class JiraClient extends AtlassianClient {
       );
       console.error("Failed to get project issue types", safeError);
       throw new Error(`Failed to get issue types: ${safeError.message}`);
+    }
+  }
+
+  async addAttachment(
+    issueKey: string,
+    filePath: string
+  ): Promise<JiraAttachment[]> {
+    try {
+      const absolutePath = path.resolve(filePath);
+
+      if (!fs.existsSync(absolutePath)) {
+        throw new Error(`File not found: ${absolutePath}`);
+      }
+
+      const stat = fs.statSync(absolutePath);
+      if (!stat.isFile()) {
+        throw new Error(`Path is not a file: ${absolutePath}`);
+      }
+
+      const form = new FormData();
+      form.append("file", fs.createReadStream(absolutePath));
+
+      const headers = this.getAuthHeaders();
+      // Jira requires this header for attachment uploads (CSRF protection bypass)
+      headers["X-Atlassian-Token"] = "no-check";
+      // Remove Content-Type so axios/form-data sets the correct multipart boundary
+      delete headers["Content-Type"];
+
+      const response: AxiosResponse<JiraAttachment[]> = await axios.post(
+        `${this.jiraApiUrl}/issue/${encodeURIComponent(issueKey)}/attachments`,
+        form,
+        {
+          headers: {
+            ...headers,
+            ...form.getHeaders(),
+          },
+          timeout: 60000, // 60s for large files
+          maxContentLength: Infinity,
+          maxBodyLength: Infinity,
+        }
+      );
+
+      return response.data;
+    } catch (error) {
+      const err = error as { response?: { status?: number; data?: unknown } };
+
+      if (err.response?.status === 404) {
+        throw new Error(`Issue not found: ${issueKey}`);
+      }
+      if (err.response?.status === 401) {
+        throw new Error(
+          "Authentication failed. Please check ATLASSIAN_USER_EMAIL and ATLASSIAN_API_TOKEN."
+        );
+      }
+      if (err.response?.status === 403) {
+        throw new Error(
+          `Access forbidden for issue ${issueKey}. Attachments may be disabled or user lacks permission.`
+        );
+      }
+      if (err.response?.status === 413) {
+        throw new Error(
+          "File too large. Check your Jira instance's attachment size limit."
+        );
+      }
+
+      const safeError = this.extractSafeError(
+        error,
+        `addAttachment(${issueKey}, ${filePath})`
+      );
+      console.error("Failed to add attachment to Jira issue", safeError);
+      throw new Error(`Failed to add attachment: ${safeError.message}`);
+    }
+  }
+
+  async getAttachments(issueKey: string): Promise<JiraAttachment[]> {
+    try {
+      const response: AxiosResponse<JiraIssue> = await axios.get(
+        `${this.jiraApiUrl}/issue/${encodeURIComponent(issueKey)}?fields=attachment`,
+        {
+          headers: this.getAuthHeaders(),
+          timeout: 10000,
+        }
+      );
+
+      return (response.data.fields.attachment as JiraAttachment[]) || [];
+    } catch (error) {
+      const err = error as { response?: { status?: number } };
+
+      if (err.response?.status === 404) {
+        throw new Error(`Issue not found: ${issueKey}`);
+      }
+      if (err.response?.status === 401) {
+        throw new Error(
+          "Authentication failed. Please check ATLASSIAN_USER_EMAIL and ATLASSIAN_API_TOKEN."
+        );
+      }
+      if (err.response?.status === 403) {
+        throw new Error(
+          `Access forbidden for issue ${issueKey}. User may not have permission.`
+        );
+      }
+
+      const safeError = this.extractSafeError(
+        error,
+        `getAttachments(${issueKey})`
+      );
+      console.error("Failed to get attachments for Jira issue", safeError);
+      throw new Error(`Failed to get attachments: ${safeError.message}`);
+    }
+  }
+
+  async deleteAttachment(attachmentId: string): Promise<void> {
+    try {
+      await axios.delete(
+        `${this.jiraApiUrl}/attachment/${encodeURIComponent(attachmentId)}`,
+        {
+          headers: this.getAuthHeaders(),
+          timeout: 10000,
+        }
+      );
+    } catch (error) {
+      const err = error as { response?: { status?: number } };
+
+      if (err.response?.status === 404) {
+        throw new Error(`Attachment not found: ${attachmentId}`);
+      }
+      if (err.response?.status === 401) {
+        throw new Error(
+          "Authentication failed. Please check ATLASSIAN_USER_EMAIL and ATLASSIAN_API_TOKEN."
+        );
+      }
+      if (err.response?.status === 403) {
+        throw new Error(
+          `Access forbidden. User may not have permission to delete attachment ${attachmentId}.`
+        );
+      }
+
+      const safeError = this.extractSafeError(
+        error,
+        `deleteAttachment(${attachmentId})`
+      );
+      console.error("Failed to delete attachment", safeError);
+      throw new Error(`Failed to delete attachment: ${safeError.message}`);
     }
   }
 

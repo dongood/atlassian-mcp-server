@@ -5,7 +5,7 @@ A Model Context Protocol (MCP) server for Atlassian Jira and Confluence integrat
 ## Features
 
 - **Long-lived Authentication**: Uses API tokens instead of OAuth for persistent access
-- **Jira Integration**: Create, update, search, and manage Jira issues
+- **Jira Integration**: Create, update, search, and manage Jira issues (including file attachments)
 - **Confluence Integration**: Read, create, and update Confluence pages
 - **Custom Field Mapping**: Use friendly names (e.g., "sprint") instead of cryptic field IDs (e.g., "customfield_10560")
 - **TypeScript**: Fully typed for better development experience
@@ -181,6 +181,9 @@ Both formats work - the server handles the translation.
 - `atlassian_get_jira_transitions` - Get available transitions
 - `atlassian_get_jira_projects` - List projects
 - `atlassian_get_project_issue_types` - Get issue types for a project
+- `atlassian_add_jira_attachment` - Upload a file attachment to an issue
+- `atlassian_get_jira_attachments` - List attachments on an issue
+- `atlassian_delete_jira_attachment` - Delete an attachment by ID
 - `atlassian_lookup_jira_user` - Find users by name/email
 
 ### Confluence Tools
@@ -191,6 +194,33 @@ Both formats work - the server handles the translation.
 - `atlassian_create_confluence_page` - Create a new page
 - `atlassian_update_confluence_page` - Update an existing page
 - `atlassian_get_page_children` - Get child pages
+
+## File Attachments
+
+The attachment tools allow uploading files from the local filesystem to Jira issues. This works because the MCP server runs as a local process on the same machine as the AI agent (Claude Code), giving it direct filesystem access.
+
+```
+Claude Code  --MCP (JSON: file path as string)-->  MCP Server  --HTTP (multipart/form-data)-->  Jira API
+```
+
+The MCP protocol itself only passes JSON (strings, numbers, objects). It has no native binary or multipart support. The trick is that the AI agent passes a **file path as a string argument**, and the MCP server handles the rest: reading the file from disk, constructing the multipart/form-data request, and uploading it to Jira's REST API v3 attachment endpoint.
+
+**This approach requires the MCP server to be running locally** (same filesystem as the files being attached). If the MCP server were running remotely, the file path would be meaningless on the remote host, and you'd need an alternative approach like base64-encoded content or a shared storage URL.
+
+### Jira Attachment API Requirements
+
+The Jira REST API v3 attachment endpoint (`POST /rest/api/3/issue/{key}/attachments`) requires:
+- `X-Atlassian-Token: no-check` header (CSRF protection bypass, required by Jira for this endpoint)
+- `Content-Type: multipart/form-data` with the file in the `file` form field
+- Standard Basic Auth (same as all other Jira API calls)
+
+### Usage Examples
+
+```
+"Attach /Users/me/docs/report.pdf to BI-10341"
+"List all attachments on PROJ-123"
+"Delete attachment 12345 from the issue"
+```
 
 ## Testing
 

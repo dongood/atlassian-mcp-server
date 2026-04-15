@@ -60,6 +60,20 @@ export interface JiraUser {
   active: boolean;
 }
 
+export interface JiraAttachment {
+  id: string;
+  filename: string;
+  author: {
+    accountId: string;
+    displayName: string;
+  };
+  created: string;
+  size: number;
+  mimeType: string;
+  content: string; // download URL
+  self: string;
+}
+
 export interface JiraComment {
   id: string;
   body: unknown; // ADF format
