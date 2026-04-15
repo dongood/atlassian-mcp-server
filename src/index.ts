@@ -274,6 +274,57 @@ const tools = [
     },
   },
   {
+    name: "atlassian_add_jira_attachment",
+    description:
+      "Upload a file attachment to a Jira issue. Accepts an absolute file path on the local filesystem. The MCP server reads the file and uploads it via multipart form-data to the Jira REST API.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        issueKey: {
+          type: "string",
+          description: "Issue key (e.g., PROJ-123)",
+        },
+        filePath: {
+          type: "string",
+          description:
+            "Absolute path to the file on the local filesystem (e.g., /Users/you/docs/report.pdf)",
+        },
+      },
+      required: ["issueKey", "filePath"],
+    },
+  },
+  {
+    name: "atlassian_get_jira_attachments",
+    description:
+      "List all attachments on a Jira issue. Returns metadata including filename, size, MIME type, author, and download URL.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        issueKey: {
+          type: "string",
+          description: "Issue key (e.g., PROJ-123)",
+        },
+      },
+      required: ["issueKey"],
+    },
+  },
+  {
+    name: "atlassian_delete_jira_attachment",
+    description:
+      "Delete an attachment from a Jira issue by attachment ID. Use atlassian_get_jira_attachments first to find the attachment ID.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        attachmentId: {
+          type: "string",
+          description:
+            "Attachment ID (get this from atlassian_get_jira_attachments)",
+        },
+      },
+      required: ["attachmentId"],
+    },
+  },
+  {
     name: "atlassian_lookup_jira_user",
     description:
       "Find Jira users by display name or email address. Returns matching users with their account IDs.",
@@ -640,6 +691,71 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const result = await jiraClient.getProjectIssueTypes(projectKey);
         return {
           content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      }
+
+      case "atlassian_add_jira_attachment": {
+        const { issueKey, filePath } = args as {
+          issueKey: string;
+          filePath: string;
+        };
+        if (!issueKey || !filePath) {
+          throw new Error("issueKey and filePath are required");
+        }
+        const attachResult = await jiraClient.addAttachment(issueKey, filePath);
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(
+                {
+                  success: true,
+                  issueKey,
+                  attachments: attachResult.map((a) => ({
+                    id: a.id,
+                    filename: a.filename,
+                    size: a.size,
+                    mimeType: a.mimeType,
+                  })),
+                },
+                null,
+                2
+              ),
+            },
+          ],
+        };
+      }
+
+      case "atlassian_get_jira_attachments": {
+        const { issueKey } = args as { issueKey: string };
+        if (!issueKey) {
+          throw new Error("issueKey is required");
+        }
+        const attachments = await jiraClient.getAttachments(issueKey);
+        return {
+          content: [
+            { type: "text", text: JSON.stringify(attachments, null, 2) },
+          ],
+        };
+      }
+
+      case "atlassian_delete_jira_attachment": {
+        const { attachmentId } = args as { attachmentId: string };
+        if (!attachmentId) {
+          throw new Error("attachmentId is required");
+        }
+        await jiraClient.deleteAttachment(attachmentId);
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(
+                { success: true, attachmentId },
+                null,
+                2
+              ),
+            },
+          ],
         };
       }
 
