@@ -563,6 +563,57 @@ export class JiraClient extends AtlassianClient {
     }
   }
 
+  async downloadAttachment(
+    attachmentId: string,
+    destinationPath: string
+  ): Promise<{ size: number; path: string }> {
+    try {
+      const absolutePath = path.resolve(destinationPath);
+      const dir = path.dirname(absolutePath);
+
+      if (!fs.existsSync(dir)) {
+        throw new Error(`Destination directory does not exist: ${dir}`);
+      }
+
+      const response: AxiosResponse<Buffer> = await axios.get(
+        `${this.jiraApiUrl}/attachment/content/${encodeURIComponent(attachmentId)}?redirect=false`,
+        {
+          headers: this.getAuthHeaders(),
+          responseType: "arraybuffer",
+          timeout: 120000,
+          maxContentLength: Infinity,
+        }
+      );
+
+      fs.writeFileSync(absolutePath, response.data);
+
+      return { size: response.data.length, path: absolutePath };
+    } catch (error) {
+      const err = error as { response?: { status?: number } };
+
+      if (err.response?.status === 401) {
+        throw new Error(
+          "Authentication failed. Please check ATLASSIAN_USER_EMAIL and ATLASSIAN_API_TOKEN."
+        );
+      }
+      if (err.response?.status === 403) {
+        throw new Error(
+          `Access forbidden. User may not have permission to download attachment ${attachmentId}.`
+        );
+      }
+      if (err.response?.status === 404) {
+        throw new Error(`Attachment not found: ${attachmentId}`);
+      }
+
+      const safeError = this.extractSafeError(
+        error,
+        `downloadAttachment(${attachmentId})`
+      );
+      console.error("Failed to download attachment", safeError);
+      throw new Error(`Failed to download attachment: ${safeError.message}`);
+    }
+  }
+
   async findUsers(query: string): Promise<JiraUser[]> {
     try {
       const response: AxiosResponse<JiraUser[]> = await axios.get(

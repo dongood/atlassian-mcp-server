@@ -325,6 +325,27 @@ const tools = [
     },
   },
   {
+    name: "atlassian_download_jira_attachment",
+    description:
+      "Download an attachment from Jira and save it to a local file path. Use atlassian_get_jira_attachments first to find the attachment ID and filename.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        attachmentId: {
+          type: "string",
+          description:
+            "Attachment ID (get this from atlassian_get_jira_attachments)",
+        },
+        destinationPath: {
+          type: "string",
+          description:
+            "Absolute path where the file will be saved (e.g., /Users/you/downloads/report.pdf)",
+        },
+      },
+      required: ["attachmentId", "destinationPath"],
+    },
+  },
+  {
     name: "atlassian_lookup_jira_user",
     description:
       "Find Jira users by display name or email address. Returns matching users with their account IDs.",
@@ -751,6 +772,32 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
               type: "text",
               text: JSON.stringify(
                 { success: true, attachmentId },
+                null,
+                2
+              ),
+            },
+          ],
+        };
+      }
+
+      case "atlassian_download_jira_attachment": {
+        const { attachmentId, destinationPath } = args as {
+          attachmentId: string;
+          destinationPath: string;
+        };
+        if (!attachmentId || !destinationPath) {
+          throw new Error("attachmentId and destinationPath are required");
+        }
+        const downloadResult = await jiraClient.downloadAttachment(
+          attachmentId,
+          destinationPath
+        );
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(
+                { success: true, ...downloadResult },
                 null,
                 2
               ),
